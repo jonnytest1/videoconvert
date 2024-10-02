@@ -4,7 +4,58 @@
 
 <video id="videoplayback"
        controls></video>
+
+
+<select id="options">
+
+</select>
+
+(seems like its currently taking about as long as the video plays till its ready 🤔)
+<button id="gobtn"
+        disabled>go</button>
+<br>
+
+<video id="resultvideo"
+       controls></video>
+
+
 <script>
+
+
+    const select = document.querySelector("select")
+    async function fillCodecs() {
+        const codecs2 = ["avc1.42001E", "vp8", "vp09.00.10.08", "av01.0.04M.08"];
+        const accelerations = ["prefer-hardware", "prefer-software"];
+
+        const configs = [];
+        for(const codec of codecs2) {
+            for(const acceleration of accelerations) {
+                configs.push({
+                    codec,
+                    hardwareAcceleration: acceleration,
+                    codedWidth: 1280,
+                    codedHeight: 720,
+                    not_supported_field: 123,
+                });
+            }
+        }
+
+        for(const config of configs) {
+            const support = await VideoDecoder.isConfigSupported(config);
+            console.log(
+                `VideoDecoder's config ${JSON.stringify(support.config)} support: ${support.supported}`,
+            );
+
+            if(support.supported) {
+
+                const option = document.createElement("option")
+                option.textContent = `${JSON.stringify(support.config)}`;
+                option.value = option.textContent
+                select.appendChild(option)
+            }
+        }
+    }
+    fillCodecs()
     /**
      * @type {HTMLInputElement}
      */
@@ -21,31 +72,28 @@
         videoEl.play()
 
         videoEl.addEventListener("loadedmetadata", async e => {
-
             const stream = videoEl.captureStream()
+            /**
+             * @type {VideoTrack}
+             */
             const videoTrack = stream.getVideoTracks()[0];
-            debugger
-
-
             const media_processor = new MediaStreamTrackProcessor({
                 track: videoTrack
             });
-            const reader = media_processor.readable.getReader();
-
+            // const reader = media_processor.readable.getReader();
 
             const trackGenerator = new MediaStreamTrackGenerator({ kind: "video" });
-
 
             // webms, avis, movs mp4
             const codecs = [
                 "vp8",// webm
-                "av1" // av1
+                // "av1" // av1
             ]
 
 
             for(const codec of codecs) {
                 const config = {
-                    codec: "vp8",
+                    codec: codec,
                     width: 640,
                     height: 480,
                     bitrate: 2_000_000, // 2 Mbps
@@ -57,32 +105,133 @@
                     return
                 }
             }
+
+            console.log("av1 isnt supported like that 🤔")
             debugger
+
+            const config = {
+                codec: "vp8",
+                width: 640,
+                height: 480,
+                bitrate: 2_000_000, // 2 Mbps
+                framerate: 30,
+            };
+
 
             const { supported } = await VideoEncoder.isConfigSupported(config);
             if(!supported) {
                 document.write(JSON.stringify(config) + " is not supported")
                 return
             }
+            const buffers = []
 
-            const encoder = new VideoEncoder(init);
-            encoder.configure(config);
-            while(true) {
-                const result = await reader.read();
-                if(result.done) break;
-                let frame = result.value;
-                if(encoder.encodeQueueSize > 2) {
-                    // Too many frames in flight, encoder is overwhelmed
-                    // let's drop this frame.
-                    frame.close();
-                } else {
-                    frame_counter++;
-                    const insert_keyframe = frame_counter % 150 === 0;
-                    encoder.encode(frame, { keyFrame: insert_keyframe });
-                    frame.close();
+
+
+            debugger
+
+
+            const init = {
+                output: function handleChunk(chunk, meta) {
+                    if(meta.decoderConfig) {
+                        if(meta.decoderConfig.description) {
+                            // https://developer.chrome.com/docs/web-platform/best-practices/webcodecs
+                            debugger
+                        }
+                    }
+                    chunk.bodydata = new Uint8Array(chunk.byteLength);
+                    chunk.copyTo(chunk.bodydata);
+
+                    buffers.push(chunk)
+
+                },
+                error: (e) => {
+                    console.log(e.message);
+                    debugger;
+                },
+            };
+            // current assumption: encode encodes to binary file
+            const encoderWebm = new VideoEncoder(init);
+            encoderWebm.configure(config);
+            let frame_counter = 0
+            /* while(true) {
+                 const result = await reader.read();
+                 if(result.done) break;
+                 let frame = result.value;
+                 if(encoderWebm.encodeQueueSize > 2) {
+                     // Too many frames in flight, encoder is overwhelmed
+                     // let's drop this frame.
+                     frame.close();
+                 } else {
+                     frame_counter++;
+                     const insert_keyframe = frame_counter % 150 === 0;
+                     encoderWebm.encode(frame, { keyFrame: insert_keyframe });
+                     frame.close();
+                 }
+ 
+             }
+             await encoderWebm.flush();*/
+
+            debugger
+            const btn = document.querySelector("#gobtn")
+            btn.addEventListener("click", async () => {
+                const cfg = JSON.parse(select.value)
+
+                debugger
+
+
+
+                const init = {
+                    output: function onFrame(frame) {
+                        trackGenerator.
+                            debugger
+                    },
+                    error: (e) => {
+                        console.log(e.message);
+                        debugger
+                    },
+                };
+
+                const decoder = new VideoDecoder(init);
+                decoder.configure(config);
+
+                debugger
+
+
+                for(const data of buffers) {
+                    const chunk = new EncodedVideoChunk({
+                        timestamp: data.timestamp,
+                        type: data.key ? "key" : "delta",
+                        data: data.bodydata,
+                    });
+                    decoder.decode(chunk);
                 }
+                await decoder.flush();
+            })
+            btn.disabled = false
 
-            }
+
+            const transformer = new TransformStream({
+                async transform(videoFrame, controller) {
+                    // debugger
+                    //const barcodes = await detectBarcodes(videoFrame);
+                    // const newFrame = highlightBarcodes(videoFrame, barcodes);
+                    //videoFrame.close();
+                    controller.enqueue(videoFrame);
+                },
+            });
+
+            media_processor.readable
+                .pipeThrough(transformer)
+                .pipeTo(trackGenerator.writable);
+            media_processor.addEventListener
+            /**
+             * @type {HTMLVideoElement}
+             */
+            const resultVid = document.querySelector("#resultvideo")
+
+            const resStream = new MediaStream([trackGenerator]);
+            resultVid.srcObject = resStream
+            resultVid.play()
         })
 
 

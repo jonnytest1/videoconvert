@@ -1,0 +1,91 @@
+<input type="file"
+       id="file">
+<br>
+
+<video id="videoplayback"
+       controls></video>
+<script>
+    /**
+     * @type {HTMLInputElement}
+     */
+    const fileEl = document.querySelector("#file")
+    /**
+     * @type {HTMLVideoElement}
+     */
+    const videoEl = document.querySelector("#videoplayback")
+
+    fileEl.addEventListener("change", async e => {
+
+        const file = fileEl.files[0]
+        videoEl.src = URL.createObjectURL(file)
+        videoEl.play()
+
+        videoEl.addEventListener("loadedmetadata", async e => {
+
+            const stream = videoEl.captureStream()
+            const videoTrack = stream.getVideoTracks()[0];
+            debugger
+
+
+            const media_processor = new MediaStreamTrackProcessor({
+                track: videoTrack
+            });
+            const reader = media_processor.readable.getReader();
+
+
+            const trackGenerator = new MediaStreamTrackGenerator({ kind: "video" });
+
+
+            // webms, avis, movs mp4
+            const codecs = [
+                "vp8",// webm
+                "av1" // av1
+            ]
+
+
+            for(const codec of codecs) {
+                const config = {
+                    codec: "vp8",
+                    width: 640,
+                    height: 480,
+                    bitrate: 2_000_000, // 2 Mbps
+                    framerate: 30,
+                };
+                const { supported } = await VideoEncoder.isConfigSupported(config);
+                if(!supported) {
+                    document.write(JSON.stringify(config) + " is not supported")
+                    return
+                }
+            }
+            debugger
+
+            const { supported } = await VideoEncoder.isConfigSupported(config);
+            if(!supported) {
+                document.write(JSON.stringify(config) + " is not supported")
+                return
+            }
+
+            const encoder = new VideoEncoder(init);
+            encoder.configure(config);
+            while(true) {
+                const result = await reader.read();
+                if(result.done) break;
+                let frame = result.value;
+                if(encoder.encodeQueueSize > 2) {
+                    // Too many frames in flight, encoder is overwhelmed
+                    // let's drop this frame.
+                    frame.close();
+                } else {
+                    frame_counter++;
+                    const insert_keyframe = frame_counter % 150 === 0;
+                    encoder.encode(frame, { keyFrame: insert_keyframe });
+                    frame.close();
+                }
+
+            }
+        })
+
+
+
+    })
+</script>
